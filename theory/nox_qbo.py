@@ -1,4 +1,4 @@
- import numpy as np
+import numpy as np
 import pygeode as pyg
 from matplotlib import pyplot as plt
 
@@ -9,10 +9,10 @@ H = 7
 #z = -H*pyg.log(pre/1000.)
 pre = 1000 * pyg.exp(-Z / H)
 
-def tau_n2o():
+def gamma_n2o():
    lt = 6 + 5 * pyg.exp(-(Z - 20)/6)
-   tau = (10**lt).rename('tau')
-   return tau
+   gamma = (10**-lt).rename('gamma_N2O')
+   return gamma
 
 def upwelling():
    # Increase  from .3mm/s at 20 km to .5mm/s at 35 km
@@ -44,14 +44,14 @@ def qbo_upwelling():
    wp = pyg.cos(phs - p0) * amp
    return wp.rename("w'")
 
-def plot_tau():
-   tau = tau_n2o()
+def plot_gamma():
+   gamma = gamma_n2o()
 
    plt.ioff()
-   ax = pyg.showvar(np.log10(tau))
+   ax = pyg.showvar(np.log10(gamma))
    #ax.setp(xscale = 'log')
    ax.setp_xaxis(major_formatter=plt.FormatStrFormatter(r'10$^{%d}$'))
-   ax.setp(xlabel = 'Lifetime (s)', title = r'$\tau$ NO$_2$')
+   ax.setp(xlabel = r'Damping rate (s$^{-1}$)', title = r'$\gamma_{N_2O}$')
 
    plt.ion()
    ax.render(1)
@@ -71,20 +71,20 @@ def plot_w():
 def plot_LN2O():
    # Predict vertical structure in N2O
 
-   tau = tau_n2o()
+   gamma = gamma_n2o()
    w = upwelling()
    qw= qbo_upwelling()
 
-   def get_N2O(w, tau):
-      L = w*tau
+   def get_N2O(w, g):
+      L = w/g
       T = (1/L).integrate('z', dx = Z*1e3)
 
       N = pyg.exp(-T)
       return L, T, N
 
-   Lb, Tb, Nb = get_N2O(w, tau)
-   L1, T1, N1 = get_N2O(w + qw(s_phase = 0),     tau)
-   L2, T2, N2 = get_N2O(w + qw(s_phase = np.pi), tau)
+   Lb, Tb, Nb = get_N2O(w, gamma)
+   L1, T1, N1 = get_N2O(w + qw(s_phase = 0),     gamma)
+   L2, T2, N2 = get_N2O(w + qw(s_phase = np.pi), gamma)
 
    plt.ioff()
 
@@ -103,5 +103,3 @@ def plot_LN2O():
 
    plt.ion()
    ax.render(3)
-
-#pyg.showvar(w/tau)
