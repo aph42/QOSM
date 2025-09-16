@@ -1,6 +1,7 @@
 import numpy as np
 import pygeode as pyg
 from matplotlib import pyplot as plt
+import model
 
 pre = pyg.Pres(10**np.linspace(2, 0, 101))
 Z = pyg.Height(np.linspace(20, 60, 101))
@@ -10,16 +11,21 @@ H = 7
 pre = 1000 * pyg.exp(-Z / H)
 
 def gamma_n2o():
+# {{{
    lt = 6 + 5 * pyg.exp(-(Z - 20)/6)
    gamma = (10**-lt).rename('gamma_N2O')
    return gamma
+# }}}
 
 def upwelling():
+# {{{
    # Increase  from .3mm/s at 20 km to .5mm/s at 35 km
    w = 0*Z + 0.0005 - (35 - Z) / (35 - 20) * 0.0002 * (Z < 35.) 
    return w.rename('w')
+# }}}
 
 def qbo_upwelling():
+# {{{
    # Increase  from .0mm/s at 20 km to .2mm/s at 35 km; back to zero at 50 km
    a0 = 0.
    z0 = 20.
@@ -43,8 +49,10 @@ def qbo_upwelling():
 
    wp = pyg.cos(phs - p0) * amp
    return wp.rename("w'")
+# }}}
 
 def plot_gamma():
+# {{{
    gamma = gamma_n2o()
 
    plt.ioff()
@@ -55,8 +63,10 @@ def plot_gamma():
 
    plt.ion()
    ax.render(1)
+# }}}
 
 def plot_w():
+# {{{
    w = upwelling()
    qw = qbo_upwelling()
 
@@ -67,10 +77,11 @@ def plot_w():
 
    plt.ion()
    ax.render(2)
+# }}}
 
 def plot_LN2O():
+# {{{
    # Predict vertical structure in N2O
-
    gamma = gamma_n2o()
    w = upwelling()
    qw= qbo_upwelling()
@@ -103,3 +114,23 @@ def plot_LN2O():
 
    plt.ion()
    ax.render(3)
+# }}}
+
+def validate_model():
+# {{{
+   plim = (150., 4.8)
+
+   zb = -H * np.log(plim[0] / 1000.)
+   zt = -H * np.log(plim[1] / 1000.)
+
+   St = mdl.BaseState(zb, zt, Nz = 301)
+
+   st_pres = pyg.Pres(St.ps)
+   st_zs = pyg.Height(St.zs)
+
+   St.w0 = 0.
+
+   St.T0 = 1.
+   St.O30 = 1.
+   St.O30 = 1.
+# }}}

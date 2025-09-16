@@ -42,10 +42,12 @@ class BaseState():
         self.__dict__['dNOx'] = 0.01 / 86400 + 0.0 * self.zs
 
         # N2O coeffs
-        self.__dict__['eN2O']  = 0.01 / 86400 + 0.0 * self.zs
+        self.__dict__['gN2O']  = 0.01 / 86400 + 0.0 * self.zs
+        self.__dict__['gNOx']  = 0.0  / 86400 + 0.0 * self.zs
 
         # NOx coeffs
-        self.__dict__['nN2O']  = 0.01 / 86400 + 0.0 * self.zs
+        self.__dict__['eN2O']  = 0.01 / 86400 + 0.0 * self.zs
+        self.__dict__['eNOx']  = 0.0  / 86400 + 0.0 * self.zs
 
         self.__dict__['T0'  ] = 0.
         self.__dict__['O30' ] = 0.
@@ -70,39 +72,86 @@ class BaseState():
 
         dz = self.dz
 
-        T0 = self.T0
-        X0 = self.X0
+        # Lower boundary conditions
+        T0   = self.T0
+        O30  = self.O30
+        N2O0 = self.N2O0
+        NOx0 = self.NOx0
 
-        tz = self.w0t
-        tc = 1j * self.om + self.al + self.w0t * R / (cp * H)
-        gm = -self.gm
+        # Temperature coefficients
+        tz = self.w0
+        tc = 1j * self.om + self.aT + self.w0 * R / (cp * H)
+        to = -self.aO3
 
-        ft = -self.S0 * self.wp
+        tf = -self.S0 * self.wp
 
-        ep = -self.ep
-        xz = self.w0x
-        xc = 1j * self.om + self.dl
+        # Ozone coefficients
+        oz  = self.w0
+        oc  = 1j * self.om + self.dO3
+        ot  = -self.dT
+        ox  = -self.dNOx
 
-        fx = -self.dX0dz * self.wp - self.nu * self.NOxp
+        of = -self.dX0dz * self.wp
 
+        # N2O coefficients
+        nz  = self.w0
+        nc  = 1j * self.om + self.gNO2
+        nx  = -self.gNOx
+
+        nf = -self.dN2O0dz * self.wp
+
+        # NOx coefficients
+        xz  = self.w0
+        xc  = 1j * self.om + self.eNOx
+        xn  = -self.eN2O
+
+        xf = -self.dNOx0dz * self.wp
+
+        # Operator blocks
         Ltt = Dz(tz[1:]) + C(tc[1:] * dz)
-        Ltx = C(gm[1:] * dz)
-        Lxt = C(ep[1:] * dz)
+        Lto = C(to[1:] * dz)
+
+        Lot = C(ot[1:] * dz)
+        Loo = Dz(oz[1:]) + C(oc[1:] * dz)
+        Lox = C(ox[1:] * dz)
+
+        Lnn = Dz(nz[1:]) + C(nc[1:] * dz)
+        Lnx = C(nx[1:] * dz)
+
         Lxx = Dz(xz[1:]) + C(xc[1:] * dz)
+        Lxn = C(xx[1:] * dz)
 
-        L = sparse.bmat([[Ltt, Ltx], [Lxt, Lxx]], format='csr', dtype = np.complex64)
+        # Null matrix
+        Z = None
 
-        Ft = ft[1:] * dz
+        L = sparse.block_array([[Ltt, Lto, Z  , Z], 
+                                [Lot, Loo, Z  , Lox], 
+                                [Z  , Z  , Lnn, Lnx], 
+                                [Z  , Z  , Lxn, Lxx]], 
+                               format='csr', dtype = np.complex64)
+
+        # Forcing and lower boundary conditions
+        Ft    = tf[1:] * dz
         Ft[0] += tz[0] * T0
 
-        Fx = fx[1:] * dz
-        Fx[0] += xz[0] * X0
+        FO3    = of[1:] * dz
+        FO3[0] += oz[0] * X0
 
-        F = np.concatenate([Ft, Fx])
+        FN2O    = nf[1:] * dz
+        FN2O[0] += nz[0] * N20
 
+        FNOx    = xf[1:] * dz
+        FNOx[0] += xz[0] * NOx0
+
+        F = np.concatenate([Ft, FO3, FN2O, FNOx])
+
+        # Solve system
         sln = spsolve(L, F)
 
-        T = np.concatenate([[T0], sln[:self.Nz]])
-        X = np.concatenate([[X0], sln[self.Nz:]])
+        # Extract components
+        T   = np.concatenate([ [T0],  sln[:self.Nz]])
+        O3  = np.concatenate([[O30],  sln[self.Nz:2*self.Nz]])
+        NO2 = np.concatenate([[N2O0], sln[2*self.Nz:3*self.Nz]])
+        NOx = np.concatenate([[NOx0], sln[3*self.Nz:]])
 
-        return T, X
+        return T, O3, NO2, NOx
