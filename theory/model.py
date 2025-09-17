@@ -124,7 +124,7 @@ class BaseState():
         # Null matrix
         Z = None
 
-        L = sparse.block_array([[Ltt, Lto, Z  , Z], 
+        L = sparse.bmat([[Ltt, Lto, Z  , Z], 
                                 [Lot, Loo, Z  , Lox], 
                                 [Z  , Z  , Lnn, Lnx], 
                                 [Z  , Z  , Lxn, Lxx]], 

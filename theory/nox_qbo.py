@@ -6,7 +6,7 @@ import model as mdl
 from an_fits_ref import *
 
 pre = pyg.Pres(10**np.linspace(2, 0, 101))
-Z = pyg.Height(np.linspace(20e3, 60e3, 101))
+Z = pyg.Height(np.linspace(12e3, 40e3, 101))
 
 H = 7000.
 #z = -H*pyg.log(pre/1000.)
@@ -82,10 +82,10 @@ def gamma_n2o(zs):
    return gamma
 # }}}
 
-def upwelling():
+def upwelling(zs):
 # {{{
    # Increase  from .3mm/s at 20 km to .5mm/s at 35 km
-   w = 0*Z + 0.0005 - (35 - Z) / (35 - 20) * 0.0002 * (Z < 35.) 
+   w = 0*zs + 0.0005 - (35 - zs*1e-3) / (35 - 20) * 0.0002 * (zs*1e-3 < 35.) 
    return w.rename('w')
 # }}}
 
@@ -116,6 +116,74 @@ def qbo_upwelling(zs):
    return wp.rename("w'")
 # }}}
 
+def fit_amp_phase(v, plot = False, off = 0.):
+# {{{
+   if v.hasaxis('time'):
+      phs = (2 * np.pi * (v.time - interval[0]) / 840.)
+      ax = 'time'
+   else:
+      phs = v.phase
+      ax = 'phase'
+
+   ca = (2*pyg.cos(phs) * v).mean(ax)
+   sa = (2*pyg.sin(phs) * v).mean(ax)
+
+   amp = pyg.sqrt(ca**2 + sa**2)
+
+   phase = pyg.arctan2(sa, ca)
+   df = (np.pi + phase.diff()) % (2 * np.pi) - np.pi
+   p0 = phase.slice[:1]
+   p1 = df.cumsum(0, v0 = phs[1]).replace_axes(z=v.z.slice[1:])
+
+   phs_c = pyg.concatenate([p0, p1])
+
+   p30 = phs_c(z = 30e3)[0]
+   off -= p30 - (p30 % (2 * np.pi))
+   phs_c += off
+
+   ds = pyg.asdataset([amp.rename('amp'), 
+                       phs_c.rename('phase'),
+                       ca.rename('re'),
+                       sa.rename('im')])
+
+   if plot:
+      w = to_timeseries(ds, phs, 'w')
+      pyg.showgrid([v, w], ncol=1, fig=0)
+
+   return ds
+# }}}
+
+def to_timeseries(ds, phase, name = 'v'):
+   w = ds.amp * np.cos(phase - ds.phase)
+   return w.rename(name)
+
+
+def to_complex(ds, name = 'v'):
+# {{{
+   v = ds.amp * pyg.exp(1j * ds.phase)
+   return v.rename(name)
+# }}}
+
+def to_amp_phase(v, off = 0.):
+# {{{
+   amp = pyg.absolute(v).rename('amp')
+   phs = pyg.angle(v).rename('phase')
+   df = (np.pi + phs.diff()) % (2 * np.pi) - np.pi
+   p0 = phs.slice[:1]
+   p1 = df.cumsum(0, v0 = phs[1]).replace_axes(pres=phs.pres.slice[1:])
+
+   phs_c = pyg.concatenate([p0, p1])
+
+   p30 = phs_c(pres = 80)[0]
+   off -= p30 - (p30 % (2 * np.pi))
+   phs_c += off
+
+   re  = pyg.real(v).rename('re')
+   im  = pyg.imag(v).rename('im')
+
+   return pyg.asdataset([amp, phs_c.rename('phase'), re, im])
+# }}}
+
 def plot_gamma():
 # {{{
    gamma = gamma_n2o(Z)
@@ -132,8 +200,8 @@ def plot_gamma():
 
 def plot_w():
 # {{{
-   w = upwelling()
-   qw = qbo_upwelling()
+   w = upwelling(Z)
+   qw = qbo_upwelling(Z)
 
    plt.ioff()
 
@@ -148,7 +216,7 @@ def plot_LN2O():
 # {{{
    # Predict vertical structure in N2O
    gamma = gamma_n2o(Z)
-   w = upwelling()
+   w = upwelling(Z)
    qw= qbo_upwelling(Z)
 
    def get_N2O(w, g):
@@ -165,15 +233,16 @@ def plot_LN2O():
    plt.ioff()
 
    ax0 = pyg.showlines([L*1e-3 for L in [Lb, L1, L2]], labels = ['bkg', 'qbo1', 'qbo2'], size=(4.1, 3.2))
-   ax0.setp(xlabel = 'km', title = r'L$_{N_2O}$', xscale='log', ylim = (20e3, 40e3))
+   ax0.setp(xlabel = 'km', title = r'L$_{N_2O}$', xscale='log', ylim = (20e3, 40e3), xlim = (0.5, 10000.))
    ax0.setp_xaxis(major_locator = plt.LogLocator())
 
    ax1 = pyg.showlines([T for T in [Tb, T1, T2]], labels = ['bkg', 'qbo1', 'qbo2'], size=(4.1, 3.2))
-   ax1.setp(xlabel = 'decay factor', title = r'T$_{N_2O}$', ylim = (20e3, 40e3), xlim = (-1, 5))
+   ax1.setp(xlabel = 'decay scales', title = r'T$_{N_2O}$', ylim = (20e3, 40e3), xlim = (-1, 5))
    #ax1.setp_xaxis(major_locator = plt.LogLocator())
 
    ax2 = pyg.showlines([N for N in [Nb, N1, N2]], labels = ['bkg', 'qbo1', 'qbo2'], size=(4.1, 3.2))
-   ax2.setp(xlabel = r'N$_2$O', title = r'N$_2$O', ylim = (20e3, 40e3))
+   ax2.setp(xlabel = r'ppbv', title = r'N$_2$O', ylim = (20e3, 40e3), xscale = 'log')
+   ax2.setp_xaxis(major_locator = plt.LogLocator())
 
    ax = pyg.plot.grid([[ax0, ax1, ax2]])
 
@@ -188,13 +257,13 @@ def validate_model():
    zb = -H * np.log(plim[0] / 1000.)
    zt = -H * np.log(plim[1] / 1000.)
 
-   St = mdl.BaseState(zb, zt, Nz = 301)
+   St = mdl.BaseState(zb, zt, Nz = 801)
 
    st_pres = pyg.Pres(St.ps)
    st_zs = pyg.Height(St.zs)
 
    St.wp[:] = 0.
-   St.w0[:] = 0.00001
+   St.w0[:] = 0.0003
 
    St.T0   = 1.
    St.O30  = 2.
@@ -253,19 +322,26 @@ def nox_qbo():
    zb = -H * np.log(plim[0] / 1000.)
    zt = -H * np.log(plim[1] / 1000.)
 
-   St = mdl.BaseState(zb, zt, Nz = 301)
+   St = mdl.BaseState(zb, zt, Nz = 81)
 
    st_pres = pyg.Pres(St.ps)
    st_zs = pyg.Height(St.zs)
+   st_zs.plotatts['scalefactor'] = 1e-3
+   st_zs.units = 'km'
 
-   #St.wp[:] = 0.
-   St.w0[:] = 0.0003
+   #St.wp[:] = 0.0001
+   St.wp[:] = to_complex(fit_amp_phase(qbo_upwelling(st_zs)))[:]
+   #St.w0[:] = 0.0003
+   St.w0[:] = upwelling(st_zs)[:]
 
    #St.S0[:]    = Sm.interpolate('pres', st_pres)[:]
    #St.dO3dz[:] = Om.interpolate('pres', st_pres)[:]
 
    St.S0[:]    = 12e-3
    St.dO3dz[:] = 5e-4
+   #St.dN2Odz[:] = 1e-11
+   St.dN2Odz[:] = init_dN2O_0_dz(St.zs)
+   #St.dNOxdz[:] = 1e-12
    St.dNOxdz[:] = init_dNOx_0_dz(St.zs)
 
    St.T0   = 0.
@@ -303,4 +379,6 @@ def nox_qbo():
    plt.ion()
 
    ax.render(2)
+
+   return St, pyg.asdataset([T, O3, N2O, NOx])
 # }}}

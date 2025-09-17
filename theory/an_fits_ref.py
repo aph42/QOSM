@@ -92,8 +92,60 @@ def init_dNOx_0_dz(z):
 
     dNOx_0_vmr_dz = np.gradient(NOx_0_vmr,dz_coarse)
 
-    interp_dNOx_0_vmr_dz= scipy.interpolate.interp1d(z_coarse,dNOx_0_vmr_dz,bounds_error=False,)
+    interp_dNOx_0_vmr_dz= scipy.interpolate.interp1d(z_coarse,dNOx_0_vmr_dz,bounds_error=False, fill_value = (dNOx_0_vmr_dz[0], dNOx_0_vmr_dz[-1]))
 
     dNOx_0_vmr_dz = interp_dNOx_0_vmr_dz(z)
 
     return dNOx_0_vmr_dz
+
+def init_N2O_0(z):
+    # INPUT: z [meters]
+    # OUTPUT: N2O_0 [vmr]
+   
+    # digitization of WACCM NOx profile from Park et al., 2017
+    # "Variability of Stratospheric Reactive Nitrogen and Ozone Related to the QBO"
+
+    H = 7000. # meters
+   
+    p_Park17 = np.array([381.876,316.91,260.131,213.524,177.200,147.055,120.707,
+                100.173,82.225,68.237,56.629,46.48,37.738,31.663,25.707,
+                21.3339,17.7046,14.6928,12.0603,10.0086,8.2154,6.81783,
+                5.5962,4.5936,3.81215,3.1636,2.5968,2.15505,1.7884,1.4519,
+                1.2049,1.01102])
+
+    ps_ref = 1000. # hPa
+    z_logp_Park17 = H * np.log(ps_ref/p_Park17)
+
+    # volume mixing ratio [ppbv]
+    N2O_ppb =np.array([349.8637,349.8633,349.8633,349.8637,349.8637,347.718,
+              349.8637,347.7185,343.467,335.120,326.976,320.998,313.198,
+              305.5866,292.709,280.3744,265.276,247.9234,226.073,199.9078,
+              172.473,146.083,119.9845,95.5641,76.114,59.8813,46.2491,
+              35.72036,26.58986,18.726,12.71004,8.62741])
+
+    interp_N2O = scipy.interpolate.interp1d(z_logp_Park17,N2O_ppb,bounds_error=False,kind='quadratic')
+
+    N2O_0 = interp_N2O(z)
+   
+    ppb2vmr = 1e-9 # conversion factor
+    N2O_0_vmr = np.clip(N2O_0,0,None)*ppb2vmr # clip up to zero, convert from ppb to vmr
+   
+    return N2O_0_vmr
+
+
+def init_dN2O_0_dz(z):
+    # INPUT: z [meters]
+    # OUTPUT: dN2O_0_dz [vmr m**-1]
+   
+    z_coarse = np.linspace(17000,50000,21)
+    dz_coarse = z_coarse[1]-z_coarse[0]
+   
+    N2O_0_vmr = init_N2O_0(z_coarse)
+   
+    dN2O_0_vmr_dz = np.gradient(N2O_0_vmr,dz_coarse)
+   
+    interp_dN2O_0_vmr_dz= scipy.interpolate.interp1d(z_coarse,dN2O_0_vmr_dz,bounds_error=False, fill_value = (dN2O_0_vmr_dz[0], dN2O_0_vmr_dz[-1]))
+   
+    dN2O_0_vmr_dz = interp_dN2O_0_vmr_dz(z)
+   
+    return dN2O_0_vmr_dz
