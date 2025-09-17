@@ -8,10 +8,10 @@ R = 287.    # J / K kg specific gas constant for dry air
 
 
 class BaseState():
-   '''  A simple PDE solver for coupled set of advection/reaction equations
-   for the evolution of QBO temperature, ozone, N2O and NOx anomalies given
-   a profile of background upwelling and anomalous QBO-related upwelling.
-   '''
+    '''  A simple PDE solver for coupled set of advection/reaction equations
+    for the evolution of QBO temperature, ozone, N2O and NOx anomalies given
+    a profile of background upwelling and anomalous QBO-related upwelling.
+    '''
     def __init__(self, zb, zt, Nz = 800):
         # Grid parameters
         self.__dict__['zb'] = zb
@@ -80,32 +80,32 @@ class BaseState():
 
         # Temperature coefficients
         tz = self.w0
-        tc = 1j * self.om + self.aT + self.w0 * R / (cp * H)
+        tc = 1j * self.omega + self.aT + self.w0 * R / (cp * H)
         to = -self.aO3
 
         tf = -self.S0 * self.wp
 
         # Ozone coefficients
         oz  = self.w0
-        oc  = 1j * self.om + self.dO3
+        oc  = 1j * self.omega + self.dO3
         ot  = -self.dT
         ox  = -self.dNOx
 
-        of = -self.dX0dz * self.wp
+        of = -self.dO3dz * self.wp
 
         # N2O coefficients
         nz  = self.w0
-        nc  = 1j * self.om + self.gNO2
+        nc  = 1j * self.omega + self.gN2O
         nx  = -self.gNOx
 
-        nf = -self.dN2O0dz * self.wp
+        nf = -self.dN2Odz * self.wp
 
         # NOx coefficients
         xz  = self.w0
-        xc  = 1j * self.om + self.eNOx
+        xc  = 1j * self.omega + self.eNOx
         xn  = -self.eN2O
 
-        xf = -self.dNOx0dz * self.wp
+        xf = -self.dNOxdz * self.wp
 
         # Operator blocks
         Ltt = Dz(tz[1:]) + C(tc[1:] * dz)
@@ -119,7 +119,7 @@ class BaseState():
         Lnx = C(nx[1:] * dz)
 
         Lxx = Dz(xz[1:]) + C(xc[1:] * dz)
-        Lxn = C(xx[1:] * dz)
+        Lxn = C(xn[1:] * dz)
 
         # Null matrix
         Z = None
@@ -135,10 +135,10 @@ class BaseState():
         Ft[0] += tz[0] * T0
 
         FO3    = of[1:] * dz
-        FO3[0] += oz[0] * X0
+        FO3[0] += oz[0] * O30
 
         FN2O    = nf[1:] * dz
-        FN2O[0] += nz[0] * N20
+        FN2O[0] += nz[0] * N2O0
 
         FNOx    = xf[1:] * dz
         FNOx[0] += xz[0] * NOx0
