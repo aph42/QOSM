@@ -14,6 +14,36 @@ pre = 1000 * pyg.exp(-Z / H)
 
 datapath = '../data/'
 
+def format_rad(den=2):
+# {{{
+   def fmt(val, pos = None, den=den):
+      num = int(np.round(val * den))
+      gcd = np.gcd(den, num)
+
+      num = num // gcd
+      den = den // gcd
+      if num == 0:
+         return r'0'
+      elif den > 1:
+         if num == 1:
+            return r'$\frac{\pi}{%d}$' % den
+         elif num == -1:
+            return r'$\frac{-\pi}{%d}$' % den
+         else:
+            return r'$\frac{%d \pi}{%d}$' % (num, den)
+      else:
+         if num == 1:
+            return r'$\pi$'
+         elif num == -1:
+            return r'$-\pi$'
+         else:
+            return r'$%d \pi$' % num
+   return fmt
+# }}}
+
+def set_rad_axis(ax, den = 2):
+   ax.setp_xaxis(major_locator = plt.MultipleLocator(1 / den), major_formatter = plt.FuncFormatter(format_rad(den)))
+
 def open_pop_file(run = None):
 # {{{ 
    if run == None: run = 'ref'
@@ -156,7 +186,6 @@ def fit_amp_phase(v, plot = False, off = 0.):
 def to_timeseries(ds, phase, name = 'v'):
    w = ds.amp * np.cos(phase - ds.phase)
    return w.rename(name)
-
 
 def to_complex(ds, name = 'v'):
 # {{{
@@ -310,7 +339,7 @@ def validate_model():
    ax.render(1)
 # }}}
 
-def nox_qbo():
+def run_nox_qbo():
 # {{{
    #dsp = open_pop_file(run)
    #daW = fit_amp_phase(dsp.resw_pop1*1e3)
@@ -356,29 +385,81 @@ def nox_qbo():
    St.dNOx[:]  = d_NOx(St.ps) / 86400.
    St.gN2O[:]  = gamma_n2o(st_zs)[:]
    St.gNOx[:]  = 0.
-   St.eN2O[:]  = 0.
-   St.eNOx[:]  = eps_N2O(St.zs)
+   St.eN2O[:]  = eps_N2O(St.zs)
+   St.eNOx[:]  = 0.
 
    T, O3, N2O, NOx = St.solve()
 
-   T   = pyg.Var((st_zs, ), name = 'T',   values = T)
-   O3  = pyg.Var((st_zs, ), name = 'O3',  values = O3)
-   N2O = pyg.Var((st_zs, ), name = 'N2O', values = N2O)
-   NOx = pyg.Var((st_zs, ), name = 'NOx', values = NOx)
-
-   plt.ioff()
-   axs = []
-   for i, v in enumerate([T, O3, N2O, NOx]):
-      ax = pyg.plot.AxesWrapper(size=(2.5, 3))
-      pyg.vplot(v.real(),  c = f'C{i}', ls = '-',  lw = 2., axes = ax)
-      pyg.vplot(v.imag(),  c = f'C{i}', ls = '--', lw = 2., axes = ax)
-      ax.axvline(x = 0, c = 'k', lw = 1.)
-      axs.append(ax)
-
-   ax = pyg.plot.grid([axs])
-   plt.ion()
-
-   ax.render(2)
+   T   = pyg.Var((st_pres, ), name = 'T',   values = T)
+   O3  = pyg.Var((st_pres, ), name = 'O3',  values = O3)
+   N2O = pyg.Var((st_pres, ), name = 'N2O', values = N2O)
+   NOx = pyg.Var((st_pres, ), name = 'NOx', values = NOx)
 
    return St, pyg.asdataset([T, O3, N2O, NOx])
+# }}}
+
+def plot_nox_coefs(fig = 4):
+# {{{
+   St, ds = run_nox_qbo()
+
+   st_pres = pyg.Pres(St.ps)
+   dN2Odz = pyg.Var((st_pres, ), name = 'dN2Odz', values = St.dN2Odz)
+   dNOxdz = pyg.Var((st_pres, ), name = 'dNOxdz', values = St.dNOxdz)
+   gN2O   = pyg.Var((st_pres, ), name = 'gN2O',   values = St.gN2O)
+   eN2O   = pyg.Var((st_pres, ), name = 'eN2O',   values = St.eN2O)
+
+   plt.ioff()
+
+   size = (2.8, 3)
+   ylims = (110, 4.8)
+
+   axn = pyg.showvar(dN2Odz, size = size)
+   axn.setp(ylim = ylims, title = r'$\partial_z$ N$_2$O', xlabel = 'vmr m$^{-1}$')
+
+   axx = pyg.showvar(dNOxdz, size = size)
+   axx.setp(ylim = ylims, title = r'$\partial_z$ NO$_x$', xlabel = 'vmr m$^{-1}$')
+
+   axg = pyg.showvar(gN2O, size = size)
+   axg.setp(ylim = ylims, title = r'$\gamma_{N_2O}$', xlabel = 's$^{-1}$')
+
+   axe = pyg.showvar(eN2O, size = size)
+   axe.setp(ylim = ylims, title = r'$\epsilon_{N_2O}$', xlabel = 'vmr NO$_x$ (vmr N$_2$O s)$^{-1}$')
+
+   axs = pyg.plot.grid([[axn, axx], [axg, axe]])
+
+   plt.ion()
+   axs.render(fig)
+# }}}
+
+def plot_nox_qbo(fig = 3):
+# {{{
+   St, ds = run_nox_qbo()
+
+   dsn = to_amp_phase(ds.N2O)
+   dsx = to_amp_phase(ds.NOx)
+
+   def phs(d, offset): return (d.phase - offset) / np.pi
+
+   plt.ioff()
+
+   def make_pair(ds, var, unit, c):
+      axa = pyg.plot.AxesWrapper(size=(2.5, 3))
+      pyg.vplot(ds.amp(),  c = c, ls = '-',  lw = 2., axes = axa)
+      axa.setp(title = f'{var}: Amplitude', xlabel = unit)
+
+      axp = pyg.plot.AxesWrapper(size=(2.5, 3))
+      pyg.vplot(phs(ds, 0),  c = c, ls = '-', lw = 2., axes = axp)
+      axp.setp(title = f'{var}: Phase')
+      set_rad_axis(axp)
+
+      return [axa, axp]
+
+   axs = []
+   axs.append(make_pair(dsn, r'N$_2$O', 'vmr', 'C0'))
+   axs.append(make_pair(dsx, r'NO$_x$', 'vmr', 'C1'))
+   
+   ax = pyg.plot.grid(axs)
+   plt.ion()
+
+   ax.render(fig)
 # }}}
