@@ -5,14 +5,22 @@ import model as mdl
 
 from an_fits_ref import *
 
-pre = pyg.Pres(10**np.linspace(2, 0, 101))
 Z = pyg.Height(np.linspace(12e3, 40e3, 101))
 
 H = 7000.
 #z = -H*pyg.log(pre/1000.)
-pre = 1000 * pyg.exp(-Z / H)
+pre = pyg.Pres(1000 * np.exp(-Z[:] / H))
 
-datapath = '../data/'
+ma = 0.02895997  #molar mass of air kg mol-1
+mo3 = 0.047997   #molar mass of ozone kg mol-1
+mnox = 0.046     #molar mass of nox kg mol-1 (NOT ACCURATE)
+
+datapath = '/data/QOSM/'
+
+rce_fns = {'ref' : 'rce_pce_lower_dresw_with_dnox_updated.nc'}
+
+# Time slice to use from RCE runs for comparison
+interval = (4*840., 5*840.)
 
 def format_rad(den=2):
 # {{{
@@ -50,7 +58,7 @@ def open_pop_file(run = None):
 
    fn = 'era5_pops_regressed_onto_u_pop_4_200hPa_5NS.nc'
 
-   dpops = pyg.open(datapath + pth)
+   dpops = pyg.open(datapath + fn)
 
    #time = pyg.NamedAxis(dpops.phase[:] * 840. / (2 * np.pi), 'time')
    #time = pyg.modeltime360n(interval[0], n = len(dpops.phase), step = np.diff(dpops.phase[:])[0] * 840. / (2 * np.pi))
@@ -93,6 +101,16 @@ def open_rce_file(run = None):
    return ds.replace_axes(time = time_axis, ly = pres_axis)
 # }}}
 
+def open_dnox_file(ref = 'ref'):
+# {{{
+   dsr = open_rce_file(ref)
+
+   fn_nox = datapath + 'dnox.nc'
+   dnox = pyg.open(fn_nox).replace_axes(ly = dsr.pres)
+   time_axis = pyg.ModelTime360(values=dnox.time[:] + 4*840, units = 'days', startdate=dict(year=2000, month=1, day=1))
+   return dnox.replace_axes(time=time_axis)
+# }}}
+
 def get_S_dChidz(run = None, recalc = False):
 # {{{
    if run == None: run = 'ref'
@@ -121,9 +139,9 @@ def upwelling(zs):
 
 def qbo_upwelling(zs):
 # {{{
-   # Increase  from .0mm/s at 20 km to .2mm/s at 35 km; back to zero at 50 km
-   a0 = 0.
-   z0 = 20e3
+   # Increase  from .0mm/s at 18 km to .2mm/s at 35 km; back to zero at 50 km
+   a0 = 0.0
+   z0 = 18e3
 
    a1 = 0.0002
    z1 = 35e3
@@ -155,6 +173,13 @@ def fit_amp_phase(v, plot = False, off = 0.):
       phs = v.phase
       ax = 'phase'
 
+   if v.hasaxis('z'):
+      axz = v.z
+      ref_height = dict(z = 30e3)
+   else:
+      axz = v.pres
+      ref_height = dict(pres = 30)
+
    ca = (2*pyg.cos(phs) * v).mean(ax)
    sa = (2*pyg.sin(phs) * v).mean(ax)
 
@@ -163,11 +188,11 @@ def fit_amp_phase(v, plot = False, off = 0.):
    phase = pyg.arctan2(sa, ca)
    df = (np.pi + phase.diff()) % (2 * np.pi) - np.pi
    p0 = phase.slice[:1]
-   p1 = df.cumsum(0, v0 = phs[1]).replace_axes(z=v.z.slice[1:])
+   p1 = df.cumsum(0, v0 = phs[1]).replace_axes(**{axz.name:axz.slice[1:]})
 
    phs_c = pyg.concatenate([p0, p1])
 
-   p30 = phs_c(z = 30e3)[0]
+   p30 = phs_c(**ref_height)[0]
    off -= p30 - (p30 % (2 * np.pi))
    phs_c += off
 
@@ -229,13 +254,33 @@ def plot_gamma():
 
 def plot_w():
 # {{{
-   w = upwelling(Z)
-   qw = qbo_upwelling(Z)
+   run = 'ref'
+   dsr = open_rce_file(run)
+   dsp = open_pop_file(run)
+
+   W0 = dsr.strat_up_ozone / 1e3
+   Wp = fit_amp_phase(dsp.resw_pop1)
+
+   w = upwelling(Z).replace_axes(z = pre)
+   qw = fit_amp_phase(qbo_upwelling(Z)).replace_axes(z = pre)
+
+   def phs(d, offset): return (d.phase - offset) / np.pi
+
+   plim = (150., 4.8)
 
    plt.ioff()
 
-   ax = pyg.showlines([1e3*w, 1e3*(w + qw)(s_phase = 0), 1e3*(w + qw)(s_phase = np.pi)], labels = ['Background', 'QBO 1', 'QBO 2'])
-   ax.setp(xlabel = 'mm/s', title = r'w$^\asterisk$')
+   axw0 = pyg.showlines([1e3*w, 1e3*W0], labels = ['Simple Fit', 'ERA 5'])
+   axwp = pyg.showlines([1e3*qw.amp, 1e3*Wp.amp], labels = ['Simple Fit', 'Modified ERA 5'])
+   axwP = pyg.showlines([phs(qw, 0), 
+                         phs(Wp, 0)], labels = ['Simple Fit', 'Modified ERA 5'])
+
+   axw0.setp(xlabel = 'mm/s', title = r'Background upwelling w$^\asterisk_0$', ylim = plim, xlim = (0, 0.7))
+   axwp.setp(xlabel = 'mm/s', title = r'QBO upwelling (amplitude) w$^\asterisk$', ylim = plim)
+   axwP.setp(title = r'QBO upwelling (phase) w$^\asterisk$', ylim = plim)
+   set_rad_axis(axwP)
+
+   ax = pyg.plot.grid([[axw0], [axwp], [axwP]])
 
    plt.ion()
    ax.render(2)
@@ -279,7 +324,30 @@ def plot_LN2O():
    ax.render(3)
 # }}}
 
-def validate_model():
+def plot_ndcoefs():
+# {{{
+   omega = 2 * np.pi / (30*28*86400.)
+   gamma = gamma_n2o(Z)
+
+   plt.ioff()
+   ax = pyg.showvar(omega / gamma)
+   ax.setp(xscale = 'log')
+   #ax.setp_xaxis(major_formatter=plt.FormatStrFormatter(r'10$^{%d}$'))
+   ax.setp_xaxis(major_locator=plt.LogLocator())#, maplt.FormatStrFormatter(r'10$^{%d}$'))
+   ax.setp(xlabel = r'$\omega / \gamma_{N_2O}$', title = r'$\omega / \gamma_{N_2O}$', xlim = (0.1, 50.))
+
+   rat = 1 / (1 + 1j * omega / gamma)
+   ax = pyg.showvar(pyg.absolute(rat))
+   #ax.setp(xscale = 'log')
+   #ax.setp_xaxis(major_locator=plt.LogLocator())#, maplt.FormatStrFormatter(r'10$^{%d}$'))
+   ax.setp(xlabel = '', title = r'$1 / (1 + i\omega / \gamma_{N_2O})$')
+
+   plt.ion()
+   ax.render(1)
+
+# }}}
+
+def validate_model_adv():
 # {{{
    plim = (150., 4.8)
 
@@ -318,6 +386,7 @@ def validate_model():
    NOx = pyg.Var((st_zs, ), name = 'NOx', values = NOx)
 
    Ta    = St.T0   * pyg.exp(-((1j * St.omega + St.aT[0])   / St.w0[0]) * (st_zs - zb))
+   Ta    = St.T0   * pyg.exp(-((1j * St.omega + St.aT[0] + St.w0[0] * mdl.R / (mdl.cp * mdl.H)) / St.w0[0]) * (st_zs - zb))
    O3a   = St.O30  * pyg.exp(-((1j * St.omega + St.dO3[0])  / St.w0[0]) * (st_zs - zb))
    N2Oa  = St.N2O0 * pyg.exp(-((1j * St.omega + St.gN2O[0]) / St.w0[0]) * (st_zs - zb))
    NOxa  = St.NOx0 * pyg.exp(-((1j * St.omega + St.eNOx[0]) / St.w0[0]) * (st_zs - zb))
@@ -339,19 +408,158 @@ def validate_model():
    ax.render(1)
 # }}}
 
-def run_nox_qbo():
+def validate_model_nox():
 # {{{
-   #dsp = open_pop_file(run)
-   #daW = fit_amp_phase(dsp.resw_pop1*1e3)
-   #Wp = to_complex(daW, 'W') / 1e3
-   #Sm, Sd, Om, Od, rat, inv, reg, ireg = get_S_dChidz(run)
-
    plim = (150., 4.8)
 
    zb = -H * np.log(plim[0] / 1000.)
    zt = -H * np.log(plim[1] / 1000.)
 
-   St = mdl.BaseState(zb, zt, Nz = 81)
+   St = mdl.BaseState(zb, zt, Nz = 801)
+
+   st_pres = pyg.Pres(St.ps)
+   st_zs = pyg.Height(St.zs)
+
+   St.wp[:] = 0.
+   St.w0[:] = 0.0003
+
+   St.omega = 0.0
+
+   St.T0   = 1.
+   St.O30  = 2.
+   St.N2O0 = 0.1
+   St.NOx0 = 0.
+
+   # Turn off any interactions
+   St.aT[:]    = 0.01 / 86400.
+   St.aO3[:]   = 0.
+   St.dT[:]    = 0.
+   St.dO3[:]   = 0.02 / 86400.
+   St.dNOx[:]  = 0.
+   St.gN2O[:]  = 0.0 / 86400. 
+   St.gNOx[:]  = 0.
+   St.eN2O[:]  = 0.1 / 86400.
+   St.eNOx[:]  = 0.0 / 86400. 
+
+   T, O3, N2O, NOx = St.solve()
+
+   T   = pyg.Var((st_zs, ), name = 'T',   values = T)
+   O3  = pyg.Var((st_zs, ), name = 'O3',  values = O3)
+   N2O = pyg.Var((st_zs, ), name = 'N2O', values = N2O)
+   NOx = pyg.Var((st_zs, ), name = 'NOx', values = NOx)
+
+   Ta    = St.T0   * pyg.exp(-((1j * St.omega + St.aT[0] + St.w0[0] * mdl.R / (mdl.cp * mdl.H)) / St.w0[0]) * (st_zs - zb))
+   O3a   = St.O30  * pyg.exp(-((1j * St.omega + St.dO3[0])  / St.w0[0]) * (st_zs - zb))
+   N2Oa  = St.N2O0 * pyg.exp(-((1j * St.omega + St.gN2O[0]) / St.w0[0]) * (st_zs - zb))
+   NOxa  = St.NOx0 + (St.eN2O[0] / St.w0[0]) * St.N2O0 * (st_zs - zb)
+
+   plt.ioff()
+   axs = []
+   for i, (v, va) in enumerate(zip([T, O3, N2O, NOx], [Ta, O3a, N2Oa, NOxa])):
+      ax = pyg.plot.AxesWrapper(size=(2.5, 3))
+      pyg.vplot(va.real(), c = 'k',     ls = '-',  lw = 2., axes = ax)
+      pyg.vplot(va.imag(), c = 'k',     ls = '-',  lw = 1., axes = ax)
+      pyg.vplot(v.real(),  c = f'C{i}', ls = '--',  lw = 2., axes = ax)
+      pyg.vplot(v.imag(),  c = f'C{i}', ls = '--', lw = 1., axes = ax)
+      ax.axvline(x = 0, c = 'k', lw = 1.)
+      axs.append(ax)
+
+   ax = pyg.plot.grid([axs])
+   plt.ion()
+
+   ax.render(1)
+# }}}
+
+def run_nox_basestate():
+# {{{
+   # Get some basic state profiles from data files generated by Alison
+   run = 'ref'
+   dsr = open_rce_file(run)
+   dnx = open_dnox_file(run)
+
+   # Stratification, background ozone profile
+   #Sm, Sd, Om, Od, rat, inv, reg, ireg = get_S_dChidz(run)
+
+   # Background upwelling
+   W0 = dsr.strat_up_ozone / 1e3
+
+   # Initialize basic state
+   plim = (150., 4.8)
+
+   zb = -H * np.log(plim[0] / 1000.)
+   zt = -H * np.log(plim[1] / 1000.)
+
+   St = mdl.BaseState(zb, zt, Nz = 301)
+
+   st_pres = pyg.Pres(St.ps)
+   st_zs = pyg.Height(St.zs)
+   st_zs.plotatts['scalefactor'] = 1e-3
+   st_zs.units = 'km'
+
+   St.wp[:] = 0.0
+   St.omega = 0.
+
+   #St.w0[:] = 0.0003
+   #St.w0[:] = upwelling(st_zs)[:]
+   St.w0[:] = W0.interpolate('pres', st_pres)[:]
+
+   St.S0[:]    = 0.
+   St.dO3dz[:] = 0.
+
+   St.dN2Odz[:] = 0.
+   St.dNOxdz[:] = 0.
+
+   St.T0   = 0.
+   St.O30  = 0.
+   St.N2O0 = 270e-9  # 270 ppbv
+   St.NOx0 = 0.
+
+   St.aT[:]    = a_T (St.ps)  / 86400.
+   St.aO3[:]   = a_O3(St.ps)  / 86400.
+   St.dT[:]    = d_T (St.ps)  / 86400.
+   St.dO3[:]   = d_O3(St.ps)  / 86400.
+   St.dNOx[:]  = d_NOx(St.ps) / 86400.
+   St.gN2O[:]  = gamma_n2o(st_zs)[:]
+   St.gNOx[:]  = 0.
+   St.eN2O[:]  = eps_N2O(St.zs)
+   #St.eN2O[:]  = 5e-9
+   St.eNOx[:]  = 0.
+
+   T, O3, N2O, NOx = St.solve()
+
+   T   = pyg.Var((st_pres, ), name = 'T',   values = T)
+   O3  = pyg.Var((st_pres, ), name = 'O3',  values = O3)
+   N2O = pyg.Var((st_pres, ), name = 'N2O', values = N2O)
+   NOx = pyg.Var((st_pres, ), name = 'NOx', values = NOx)
+
+   return St, pyg.asdataset([T, O3, N2O, NOx])
+# }}}
+
+def run_nox_qbo():
+# {{{
+   # Get some basic state profiles from data files generated by Alison
+   run = 'ref'
+   dsr = open_rce_file(run)
+   dsp = open_pop_file(run)
+   dnx = open_dnox_file(run)
+
+   # Stratification, background ozone profile
+   Sm, Sd, Om, Od, rat, inv, reg, ireg = get_S_dChidz(run)
+
+   # Background upwelling
+   W0 = dsr.strat_up_ozone / 1e3
+
+   # QBO Upwelling
+   daW = fit_amp_phase(dsp.resw_pop1*1e3)
+   Wp = to_complex(daW, 'W') / 1e3
+
+   # Initialize basic state
+   plim = (150., 4.8)
+
+   zb = -H * np.log(plim[0] / 1000.)
+   zt = -H * np.log(plim[1] / 1000.)
+
+   St = mdl.BaseState(zb, zt, Nz = 301)
 
    st_pres = pyg.Pres(St.ps)
    st_zs = pyg.Height(St.zs)
@@ -359,18 +567,22 @@ def run_nox_qbo():
    st_zs.units = 'km'
 
    #St.wp[:] = 0.0001
-   St.wp[:] = to_complex(fit_amp_phase(qbo_upwelling(st_zs)))[:]
+   #St.wp[:] = to_complex(fit_amp_phase(qbo_upwelling(st_zs)))[:]
+   St.wp[:] = Wp.real().interpolate('pres', st_pres)[:] + 1j * Wp.imag().interpolate('pres', st_pres)[:]
+
    #St.w0[:] = 0.0003
-   St.w0[:] = upwelling(st_zs)[:]
+   #St.w0[:] = upwelling(st_zs)[:]
+   St.w0[:] = W0.interpolate('pres', st_pres)[:]
 
-   #St.S0[:]    = Sm.interpolate('pres', st_pres)[:]
-   #St.dO3dz[:] = Om.interpolate('pres', st_pres)[:]
+   #St.S0[:]    = 12e-3
+   St.S0[:]    = Sm.interpolate('pres', st_pres)[:]
+   #St.dO3dz[:] = 5e-4
+   St.dO3dz[:] = Om.interpolate('pres', st_pres)[:]
 
-   St.S0[:]    = 12e-3
-   St.dO3dz[:] = 5e-4
    #St.dN2Odz[:] = 1e-11
    St.dN2Odz[:] = init_dN2O_0_dz(St.zs)
    #St.dNOxdz[:] = 1e-12
+   #St.dNOxdz[:] = 0.
    St.dNOxdz[:] = init_dNOx_0_dz(St.zs)
 
    St.T0   = 0.
@@ -386,6 +598,7 @@ def run_nox_qbo():
    St.gN2O[:]  = gamma_n2o(st_zs)[:]
    St.gNOx[:]  = 0.
    St.eN2O[:]  = eps_N2O(St.zs)
+   #St.eN2O[:]  = 5e-9
    St.eNOx[:]  = 0.
 
    T, O3, N2O, NOx = St.solve()
@@ -400,9 +613,15 @@ def run_nox_qbo():
 
 def plot_nox_coefs(fig = 4):
 # {{{
-   St, ds = run_nox_qbo()
+   St, ds0 = run_nox_basestate()
+   #St , ds  = run_nox_qbo()
+
+   St.dN2Odz[:] = init_dN2O_0_dz(St.zs)
+   St.dNOxdz[:] = init_dNOx_0_dz(St.zs)
 
    st_pres = pyg.Pres(St.ps)
+   st_zs = pyg.Height(St.zs)
+
    dN2Odz = pyg.Var((st_pres, ), name = 'dN2Odz', values = St.dN2Odz)
    dNOxdz = pyg.Var((st_pres, ), name = 'dNOxdz', values = St.dNOxdz)
    gN2O   = pyg.Var((st_pres, ), name = 'gN2O',   values = St.gN2O)
@@ -413,19 +632,27 @@ def plot_nox_coefs(fig = 4):
    size = (2.8, 3)
    ylims = (110, 4.8)
 
-   axn = pyg.showvar(dN2Odz, size = size)
+   axn0 = pyg.showlines([ds0.N2O], size = size)
+   axn0.setp(ylim = ylims, title = r'N$_2$O', xlabel = 'vmr')
+
+   axx0 = pyg.showlines([ds0.NOx], size = size)
+   axx0.setp(ylim = ylims, title = r'NO$_x$', xlabel = 'vmr')
+
+   axn = pyg.showlines([ds0.N2O.deriv('pres', dx=st_zs), dN2Odz], labels = ['calculated', 'fit'], size = size)
    axn.setp(ylim = ylims, title = r'$\partial_z$ N$_2$O', xlabel = 'vmr m$^{-1}$')
 
-   axx = pyg.showvar(dNOxdz, size = size)
+   axx = pyg.showlines([ds0.NOx.deriv('pres', dx=st_zs), dNOxdz], labels = ['calculated', 'fit'], size = size)
    axx.setp(ylim = ylims, title = r'$\partial_z$ NO$_x$', xlabel = 'vmr m$^{-1}$')
 
    axg = pyg.showvar(gN2O, size = size)
-   axg.setp(ylim = ylims, title = r'$\gamma_{N_2O}$', xlabel = 's$^{-1}$')
+   axg.setp(ylim = ylims, title = r'$\gamma_{N_2O}$', xlabel = 's$^{-1}$')#, xscale = 'log', xlim = (1e-10, 1e-5))
+   #axg.setp_xaxis(major_formatter = plt.LogFormatter(),
+                  #major_locator = plt.LogLocator())
 
    axe = pyg.showvar(eN2O, size = size)
    axe.setp(ylim = ylims, title = r'$\epsilon_{N_2O}$', xlabel = 'vmr NO$_x$ (vmr N$_2$O s)$^{-1}$')
 
-   axs = pyg.plot.grid([[axn, axx], [axg, axe]])
+   axs = pyg.plot.grid([[axn0, axx0], [axn, axx], [axg, axe]])
 
    plt.ion()
    axs.render(fig)
@@ -433,6 +660,9 @@ def plot_nox_coefs(fig = 4):
 
 def plot_nox_qbo(fig = 3):
 # {{{
+   dnx = open_dnox_file()
+   dn = fit_amp_phase(dnx.dnox)
+
    St, ds = run_nox_qbo()
 
    dsn = to_amp_phase(ds.N2O)
@@ -442,21 +672,26 @@ def plot_nox_qbo(fig = 3):
 
    plt.ioff()
 
-   def make_pair(ds, var, unit, c):
+   def make_pair(ds, var, unit, c, dsref = None):
       axa = pyg.plot.AxesWrapper(size=(2.5, 3))
-      pyg.vplot(ds.amp(),  c = c, ls = '-',  lw = 2., axes = axa)
-      axa.setp(title = f'{var}: Amplitude', xlabel = unit)
-
       axp = pyg.plot.AxesWrapper(size=(2.5, 3))
+
+      pyg.vplot(1e9*ds.amp(),  c = c, ls = '-',  lw = 2., axes = axa)
       pyg.vplot(phs(ds, 0),  c = c, ls = '-', lw = 2., axes = axp)
+
+      if dsref is not None:
+         pyg.vplot(1e9*dsref.amp, c = 'k', ls = '--', lw = 2, axes = axa)
+         pyg.vplot(phs(dsref, 0), c = 'k', ls = '--', lw = 2, axes = axp)
+
+      axa.setp(title = f'{var}: Amplitude', xlabel = unit)
       axp.setp(title = f'{var}: Phase')
       set_rad_axis(axp)
 
       return [axa, axp]
 
    axs = []
-   axs.append(make_pair(dsn, r'N$_2$O', 'vmr', 'C0'))
-   axs.append(make_pair(dsx, r'NO$_x$', 'vmr', 'C1'))
+   axs.append(make_pair(dsn, r'N$_2$O', 'ppbv', 'C0'))
+   axs.append(make_pair(dsx, r'NO$_x$', 'ppbv', 'C1', dsref = dn(pres = (110, 4.8))))
    
    ax = pyg.plot.grid(axs)
    plt.ion()
