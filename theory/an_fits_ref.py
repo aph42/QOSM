@@ -247,6 +247,12 @@ def init_NOx_per_NOy(z):
     H = 7000. # meters
     ps_ref = 1000. # hPa
     z_logp = H * np.log(ps_ref/plev_MIROC)
+
+    interp_NOx_per_NOy = scipy.interpolate.interp1d(z_logp,NOx_per_NOy_MIROC,bounds_error=False,kind='quadratic')
+
+    NOx_per_NOy_0 = interp_NOx_per_NOy(z)
+
+    return NOx_per_NOy_0
 # }}}
 
 def init_HNO3_per_NOy(z):
