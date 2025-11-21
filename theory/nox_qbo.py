@@ -571,10 +571,10 @@ def run_nox_qbo(config = 'nox_analytical', n2o_source = True):
    #St.wp[:] = to_complex(fit_amp_phase(qbo_upwelling(st_zs)))[:]
    St.wp[:] = Wp.real().interpolate('pres', st_pres)[:] + 1j * Wp.imag().interpolate('pres', st_pres)[:]
 
-   #St.w0[:] = 0.
+   St.w0[:] = 0.
    #St.w0[:] = 0.0003
    #St.w0[:] = upwelling(st_zs)[:]
-   St.w0[:] = W0.interpolate('pres', st_pres)[:]
+   #St.w0[:] = W0.interpolate('pres', st_pres)[:]
 
    #St.S0[:]    = 12e-3
    St.S0[:]    = Sm.interpolate('pres', st_pres)[:]
@@ -744,7 +744,7 @@ def plot_nox_coefs(fig = 4):
    axs.render(fig)
 # }}}
 
-def plot_nox_qbo(fig = 3):
+def plot_nox_qbo(config = 'nox', fig = 3):
 # {{{
    run = 'ref'
    dnx = open_dnox_file()
@@ -752,8 +752,8 @@ def plot_nox_qbo(fig = 3):
 
    dsp = open_pop_file(run)
 
-   St, ds = run_nox_qbo('noy')
-   St1, ds1 = run_nox_qbo('noy', n2o_source = False)
+   St, ds = run_nox_qbo(config)
+   St1, ds1 = run_nox_qbo(config, n2o_source = False)
 
    r = init_NOx_per_NOy(St.zs)
    rz = np.gradient(np.log(r), St.zs)
@@ -800,6 +800,8 @@ def plot_nox_qbo(fig = 3):
    axs = []
    axs.append(make_pair(dsn, r'N$_2$O', 'ppbv', 'C0'))
    axs.append(make_pair(dsx, r'NO$_x$', 'ppbv', 'C0', dsref = dn(pres = (110, 4.8)), ds1 = dsx1))
+
+   axs[1][0].setp(xlim = (0, 5))
    
    ax = pyg.plot.grid(axs)
    plt.ion()
