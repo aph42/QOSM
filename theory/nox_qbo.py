@@ -15,9 +15,10 @@ ma = 0.02895997  #molar mass of air kg mol-1
 mo3 = 0.047997   #molar mass of ozone kg mol-1
 mnox = 0.046     #molar mass of nox kg mol-1 (NOT ACCURATE)
 
-datapath = '/data/QOSM/'
+datapath = 'input/'
 
-rce_fns = {'ref' : 'rce_pce_lower_dresw_with_dnox_updated.nc'}
+#rce_fns = {'ref' : 'rce_pce_lower_dresw_with_dnox_updated.nc'}
+rce_fns = {'ref' : 'background_upwelling.nc'}
 
 # Time slice to use from RCE runs for comparison
 interval = (4*840., 5*840.)
